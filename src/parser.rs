@@ -77,7 +77,7 @@ fn quoted_word(input: &str) -> IResult<&str, Word<'_>> {
 }
 
 fn word_list(input: &str) -> IResult<&str, Vec<Word<'_>>> {
-    many1(preceded(sep, alt((word, quoted_word))))(input)
+    many1(preceded(sep, word_or_quoted))(input)
 }
 
 // Inside a group ; and \n are allowed
@@ -86,11 +86,15 @@ fn is_grouped_word(c: char) -> bool {
     c != '{' && c != '}' && c != '[' && c != ']' && c != '"' && !is_space(c)
 }
 
+fn word_or_quoted(input: &str) -> IResult<&str, Word<'_>> {
+    alt((word, quoted_word))(input)
+}
+
 fn group(input: &str) -> IResult<&str, Vec<Word<'_>>> {
     preceded(
         chr('{'),
         terminated(
-            many0(preceded(ws, alt((word, quoted_word)))),
+            many0(preceded(ws, word_or_quoted)),
             preceded(ws, chr('}')),
         ),
     )(input)
