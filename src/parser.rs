@@ -2,9 +2,10 @@ use nom::branch::alt;
 use nom::bytes::complete::{escaped, tag, take_while, take_while1};
 use nom::character::complete::{char as chr, newline, one_of};
 use nom::combinator::{all_consuming, map};
+use nom::error::ErrorKind;
 use nom::multi::{fold_many1, many0, many1};
 use nom::sequence::{delimited, preceded, terminated};
-use nom::IResult;
+use nom::{Err, IResult};
 
 // Commands are separated by newlines or semicolons
 // New lines are ignored when inside a { } group
@@ -27,7 +28,7 @@ pub enum Token<'a> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Command<'a>(Vec<Token<'a>>);
+pub struct Command<'a>(pub(crate) Vec<Token<'a>>);
 
 fn is_space(c: char) -> bool {
     c == ' ' || c == '\t'
@@ -93,10 +94,7 @@ fn word_or_quoted(input: &str) -> IResult<&str, Word<'_>> {
 fn group(input: &str) -> IResult<&str, Vec<Word<'_>>> {
     preceded(
         chr('{'),
-        terminated(
-            many0(preceded(ws, word_or_quoted)),
-            preceded(ws, chr('}')),
-        ),
+        terminated(many0(preceded(ws, word_or_quoted)), preceded(ws, chr('}'))),
     )(input)
 }
 
@@ -135,16 +133,16 @@ fn just_ws(input: &str) -> IResult<&str, &str> {
     take_while1(|c| is_space(c) || c == '\n')(input)
 }
 
-pub fn parse(input: &str) -> IResult<&str, Vec<Command<'_>>> {
+pub fn parse(input: &str) -> Result<Vec<Command<'_>>, Err<(&str, ErrorKind)>> {
     if input.is_empty() {
-        return Ok(("", Vec::new()));
+        return Ok(Vec::new());
     }
 
     let empty_or_commands = alt((
         map(just_ws, |_| Vec::new()),
         many1(terminated(command, many0(newline))),
     ));
-    all_consuming(empty_or_commands)(input)
+    all_consuming(empty_or_commands)(input).map(|(_remaining, commands)| commands)
 }
 
 #[cfg(test)]
@@ -315,19 +313,19 @@ mod tests {
 
     #[test]
     fn test_parse_empty() {
-        assert_eq!(parse(""), Ok(("", vec![])));
-        assert_eq!(parse("  "), Ok(("", vec![])));
-        assert_eq!(parse("\n\n\n"), Ok(("", vec![])));
+        assert_eq!(parse(""), Ok(Vec::new()));
+        assert_eq!(parse("  "), Ok(Vec::new()));
+        assert_eq!(parse("\n\n\n"), Ok(Vec::new()));
     }
 
     #[test]
     fn test_parse_single() {
         assert_eq!(
             parse("hello { world }"),
-            Ok((
-                "",
-                vec![Command(vec![Token::List(vec![b("hello"), b("world")])]),]
-            ))
+            Ok(vec![Command(vec![Token::List(vec![
+                b("hello"),
+                b("world")
+            ])]),])
         );
     }
 
@@ -335,13 +333,10 @@ mod tests {
     fn test_parse_multiple() {
         assert_eq!(
             parse("hello { world }\ndemo {\n  hello\n  world\n}\n"),
-            Ok((
-                "",
-                vec![
-                    Command(vec![Token::List(vec![b("hello"), b("world")])]),
-                    Command(vec![Token::List(vec![b("demo"), b("hello"), b("world")])])
-                ]
-            ))
+            Ok(vec![
+                Command(vec![Token::List(vec![b("hello"), b("world")])]),
+                Command(vec![Token::List(vec![b("demo"), b("hello"), b("world")])])
+            ])
         );
     }
 
@@ -351,90 +346,87 @@ mod tests {
         let result = parse(input);
         assert_eq!(
             result,
-            Ok((
-                "",
-                vec![
-                    Command(vec![Token::List(vec![b("set"), b("name"), b("ruby")])]),
-                    Command(vec![Token::List(vec![b("set"), b("version"), b("2.6.3")])]),
-                    Command(vec![Token::List(vec![
-                        b("set"),
-                        b("ruby_abiver"),
-                        b("2.6.0")
-                    ])]),
-                    Command(vec![
-                        Token::List(vec![b("set"), b("subdir")]),
-                        Token::Subst(Command(vec![Token::List(vec![
-                            b("replace"),
-                            b("$version"),
-                            b(r#"\..*"#),
-                            q("")
-                        ])]))
-                    ]),
-                    Command(vec![Token::List(vec![b("pkgname"), b("$name")])]),
-                    Command(vec![Token::List(vec![b("version"), b("$version")])]),
-                    Command(vec![Token::List(vec![b("revision"), b("2")])]),
-                    Command(vec![Token::List(vec![
-                        b("build-style"),
-                        b("gnu-configure")
-                    ])]),
-                    Command(vec![Token::List(vec![
-                        b("configure_args"),
-                        b("--enable-shared"),
-                        b("--disable-rpath"),
-                        b("DOXYGEN"),
-                        b("/usr/bin/doxygen"),
-                        b("DOT"),
-                        b("/usr/bin/dot"),
-                        b("PKG_CONFIG"),
-                        b("/usr/bin/pkg-config")
-                    ])]),
-                    Command(vec![Token::List(vec![
-                        b("make_build_args"),
-                        b("all"),
-                        b("capi")
-                    ])]),
-                    Command(vec![Token::List(vec![
-                        b("hostmakedepends"),
-                        b("pkg-config"),
-                        b("bison"),
-                        b("groff")
-                    ])]),
-                    Command(vec![Token::List(vec![
-                        b("makedepends"),
-                        b("zlib-devel"),
-                        b("readline-devel"),
-                        b("libffi-devel"),
-                        b("libressl-devel"),
-                        b("gdbm-devel"),
-                        b("libyaml-devel"),
-                        b("pango-devel")
-                    ])]),
-                    Command(vec![Token::List(vec![b("checkdepends"), b("tzdata")])]),
-                    Command(vec![Token::List(vec![
-                        b("short_desc"),
-                        q("Ruby programming language")
-                    ])]),
-                    Command(vec![Token::List(vec![
-                        b("homepage"),
-                        b("http://www.ruby-lang.org/en/")
-                    ])]),
-                    Command(vec![Token::List(vec![
-                        b("maintainer"),
-                        q("Wesley Moore <wes@wezm.net>")
-                    ])]),
-                    Command(vec![Token::List(vec![
-                        b("license"),
-                        b("Ruby"),
-                        b("BSD-2-Clause")
-                    ])]),
-                    Command(vec![Token::List(vec![
-                        b("distfile"),
-                        b("https://cache.ruby-lang.org/pub/ruby/$subdir/$pkgname-$version.tar.bz2"),
-                        b("checksum"),
-                        b("dd638bf42059182c1d04af0d5577131d4ce70b79105231c4cc0a60de77b14f2e")
-                    ])])
-                ]
-            ))
+            Ok(vec![
+                Command(vec![Token::List(vec![b("set"), b("name"), b("ruby")])]),
+                Command(vec![Token::List(vec![b("set"), b("version"), b("2.6.3")])]),
+                Command(vec![Token::List(vec![
+                    b("set"),
+                    b("ruby_abiver"),
+                    b("2.6.0")
+                ])]),
+                Command(vec![
+                    Token::List(vec![b("set"), b("subdir")]),
+                    Token::Subst(Command(vec![Token::List(vec![
+                        b("replace"),
+                        b("$version"),
+                        b(r#"\..*"#),
+                        q("")
+                    ])]))
+                ]),
+                Command(vec![Token::List(vec![b("pkgname"), b("$name")])]),
+                Command(vec![Token::List(vec![b("version"), b("$version")])]),
+                Command(vec![Token::List(vec![b("revision"), b("2")])]),
+                Command(vec![Token::List(vec![
+                    b("build-style"),
+                    b("gnu-configure")
+                ])]),
+                Command(vec![Token::List(vec![
+                    b("configure_args"),
+                    b("--enable-shared"),
+                    b("--disable-rpath"),
+                    b("DOXYGEN"),
+                    b("/usr/bin/doxygen"),
+                    b("DOT"),
+                    b("/usr/bin/dot"),
+                    b("PKG_CONFIG"),
+                    b("/usr/bin/pkg-config")
+                ])]),
+                Command(vec![Token::List(vec![
+                    b("make_build_args"),
+                    b("all"),
+                    b("capi")
+                ])]),
+                Command(vec![Token::List(vec![
+                    b("hostmakedepends"),
+                    b("pkg-config"),
+                    b("bison"),
+                    b("groff")
+                ])]),
+                Command(vec![Token::List(vec![
+                    b("makedepends"),
+                    b("zlib-devel"),
+                    b("readline-devel"),
+                    b("libffi-devel"),
+                    b("libressl-devel"),
+                    b("gdbm-devel"),
+                    b("libyaml-devel"),
+                    b("pango-devel")
+                ])]),
+                Command(vec![Token::List(vec![b("checkdepends"), b("tzdata")])]),
+                Command(vec![Token::List(vec![
+                    b("short_desc"),
+                    q("Ruby programming language")
+                ])]),
+                Command(vec![Token::List(vec![
+                    b("homepage"),
+                    b("http://www.ruby-lang.org/en/")
+                ])]),
+                Command(vec![Token::List(vec![
+                    b("maintainer"),
+                    q("Wesley Moore <wes@wezm.net>")
+                ])]),
+                Command(vec![Token::List(vec![
+                    b("license"),
+                    b("Ruby"),
+                    b("BSD-2-Clause")
+                ])]),
+                Command(vec![Token::List(vec![
+                    b("distfile"),
+                    b("https://cache.ruby-lang.org/pub/ruby/$subdir/$pkgname-$version.tar.bz2"),
+                    b("checksum"),
+                    b("dd638bf42059182c1d04af0d5577131d4ce70b79105231c4cc0a60de77b14f2e")
+                ])])
+            ])
         )
     }
 }
