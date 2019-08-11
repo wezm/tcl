@@ -1,5 +1,3 @@
-mod parser;
+#![warn(rust_2018_idioms )]
 
-pub struct Command<'a> {
-    words: Vec<&'a str>,
-}
+pub mod parser;
