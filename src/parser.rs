@@ -9,7 +9,7 @@ use nom::IResult;
 // Commands are separated by newlines or semicolons
 // New lines are ignored when inside a { } group
 // When evaluating commands inside [ ] are substituted into the outer command
-// $var is substituted with the value of the variable var
+// $var or ${var} is substituted with the value of the variable var
 // Double quotes can be used to ignore special characters like space
 // Each command evaluates to a single result value
 
@@ -62,8 +62,7 @@ fn word(input: &str) -> IResult<&str, Word<'_>> {
 //}
 
 fn escaped_text(input: &str) -> IResult<&str, &str> {
-    let allowed =
-        take_while1(|c| c != '{' && c != '}' && c != '[' && c != ']' && c != '\\' && c != '"');
+    let allowed = take_while1(|c| c != '\\' && c != '"');
     escaped(allowed, '\\', one_of(r#"\"n"#))(input)
 }
 
@@ -260,6 +259,13 @@ mod tests {
         assert_eq!(
             command("hello { world }"),
             Ok(("", Command(vec![Token::List(vec![b("hello"), b("world")])])))
+        );
+        assert_eq!(
+            command("hello \"{[ world ]}\""),
+            Ok((
+                "",
+                Command(vec![Token::List(vec![b("hello"), q("{[ world ]}")])])
+            ))
         );
         assert_eq!(
             command("puts \"Hello, world\""),
