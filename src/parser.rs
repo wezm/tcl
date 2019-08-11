@@ -284,6 +284,13 @@ mod tests {
             ))
         );
         assert_eq!(
+            command("demo {\n  hello world\n}"),
+            Ok((
+                "",
+                Command(vec![Token::List(vec![b("demo"), b("hello"), b("world")])])
+            ))
+        );
+        assert_eq!(
             command("hello { world }\ndemo {\n  hello\n  world\n}\n"),
             Ok((
                 "\ndemo {\n  hello\n  world\n}\n",
