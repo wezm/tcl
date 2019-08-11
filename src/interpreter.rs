@@ -32,7 +32,7 @@ where
                 match token {
                     Token::List(words) => {
                         let words: Vec<_> =
-                            words.iter().map(unescape_substitute_variables).collect();
+                            words.iter().map(unescape_and_substitute_variables).collect();
                         result = (self.dispatch)(words[0].as_ref())
                             .expect("unknown command")
                             .eval(&words[1..]); // TODO handle no args
@@ -59,13 +59,13 @@ impl<'a> Command<'a> for Set {
     }
 }
 
-fn unescape_substitute_variables<'a>(word: &'a Word<'a>) -> Cow<'a, str> {
+fn unescape_and_substitute_variables<'a>(word: &'a Word<'a>) -> Cow<'a, str> {
     match word {
         Word::Bare(s) => Cow::from(*s),
-        Word::Quoted(s) => unescape(s), // TODO: substitute variables in the unescaped text
+        Word::Quoted(s) => unescape(s), // TODO: substitute variables in the escaped text
     }
 }
 
-fn unescape<'a>(escaped: &'a str) -> Cow<'a, str> {
+fn unescape(escaped: &str) -> Cow<'_, str> {
     Cow::from(escaped)
 }
