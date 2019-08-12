@@ -78,7 +78,8 @@ fn unescape_and_substitute_variables<'a>(word: &'a Word<'a>) -> Cow<'a, str> {
 
 /// Processes backslash escapes.
 fn unescape(escaped: &str) -> Cow<'_, str> {
-    // It it worth doing this or would it be better to just always allocate a new string?
+    // Benchmarks show that this check is worth it given the common case of text with
+    // no escape characters.
     if escaped.contains('\\') {
         let mut result = String::new();
         let mut chars = escaped.chars();
@@ -99,5 +100,52 @@ fn unescape(escaped: &str) -> Cow<'_, str> {
         Cow::from(result)
     } else {
         Cow::from(escaped)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unescape;
+    use easybench::bench;
+
+    fn unescape_no_cow(escaped: &str) -> String {
+        let mut result = String::new();
+        let mut chars = escaped.chars();
+
+        loop {
+            match chars.next() {
+                Some('\\') => match chars.next().expect("truncated escape sequence") {
+                    '\\' => result.push('\\'),
+                    '"' => result.push('"'),
+                    'n' => result.push('\n'),
+                    c => panic!("invalid escape sequence '{}'", c),
+                },
+                Some(c) => result.push(c),
+                None => break,
+            };
+        }
+
+        result
+    }
+
+    #[test]
+    fn bench_unescape() {
+        println!(
+            "unescape:        {}",
+            bench(|| unescape("This is some sample text without escapes"))
+        );
+        println!(
+            "unescape_no_cow: {}",
+            bench(|| unescape_no_cow("This is some sample text without escapes"))
+        );
+
+        println!(
+            "unescape esc:        {}",
+            bench(|| unescape("This is some sample \\\"text\\\" with\\nescapes"))
+        );
+        println!(
+            "unescape_no_cow esc: {}",
+            bench(|| unescape_no_cow("This is some sample \\\"text\\\" with\\nescapes"))
+        );
     }
 }
