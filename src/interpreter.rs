@@ -1,27 +1,37 @@
-use crate::parser::{self, Token, Word};
 use std::borrow::Cow;
+use std::marker::PhantomData;
 
-type EvalResult = Result<String, ()>;
+use crate::parser::{self, Token, Word};
+
+pub type EvalResult = Result<String, ()>;
 
 pub trait Command<'a> {
-    fn eval(&self, args: &[Cow<'a, str>]) -> String;
+    fn eval(&self, args: &[Cow<'a, str>]) -> EvalResult;
 }
 
-pub struct Interpreter<F: Fn(&str) -> Option<Box<dyn Command<'_>>>> {
-    dispatch: F,
+pub trait Context<'a> {
+    fn eval(&mut self, cmd: &str, args: &[Cow<'a, str>]) -> EvalResult;
 }
 
 pub struct Set;
 
-impl<F> Interpreter<F>
+pub struct Interpreter<'a, C: Context<'a>> {
+    context: C,
+    lifetime: PhantomData<&'a C>,
+}
+
+impl<'a, C> Interpreter<'a, C>
 where
-    F: Fn(&str) -> Option<Box<dyn Command<'_>>>,
+    C: Context<'a>,
 {
-    pub fn new(dispatch: F) -> Self {
-        Interpreter { dispatch }
+    pub fn new(context: C) -> Self {
+        Interpreter {
+            context,
+            lifetime: PhantomData,
+        }
     }
 
-    pub fn eval(&mut self, commands: &[parser::Command<'_>]) -> EvalResult {
+    pub fn eval(&mut self, commands: &'a [parser::Command<'_>]) -> EvalResult {
         let mut result = String::new();
         for command in commands {
             for token in command.0.iter() {
@@ -31,9 +41,11 @@ where
                             .iter()
                             .map(unescape_and_substitute_variables)
                             .collect();
-                        result = (self.dispatch)(words[0].as_ref())
+                        // TODO: Handle built-in commands
+                        result = self
+                            .context
+                            .eval(words[0].as_ref(), &words[1..])
                             .expect("unknown command")
-                            .eval(&words[1..]); // TODO handle no args
 
                         // TODO: it will need access to the interpreter state
                         // structs for each command that impl a trait?
@@ -50,10 +62,10 @@ where
 }
 
 impl<'a> Command<'a> for Set {
-    fn eval(&self, args: &[Cow<'a, str>]) -> String {
+    fn eval(&self, args: &[Cow<'a, str>]) -> EvalResult {
         println!("{:?}", args);
 
-        String::new()
+        Ok(String::new())
     }
 }
 

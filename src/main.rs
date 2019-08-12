@@ -1,8 +1,11 @@
+use std::borrow::Cow;
 use std::env;
 use std::fs;
 
-use tcl::interpreter::{self, Command, Interpreter};
+use tcl::interpreter::{self, Command, Context, Interpreter};
 use tcl::parser;
+
+struct Env;
 
 fn main() {
     let args: Vec<_> = env::args().collect();
@@ -14,20 +17,18 @@ fn main() {
         return;
     }
 
-    let mut tcl = Interpreter::new(dispatch);
-
-    // we can register a dispatch function with the interpreter at compile time, which
-    // will be responsible for delegating to the commands, you can choose that include
-    // whatever built in commands you want.
+    let mut tcl = Interpreter::new(Env);
     let script = fs::read_to_string(&args[1]).expect("Error reading input file");
     let commands = parser::parse(&script).unwrap();
 
     tcl.eval(&commands).unwrap();
 }
 
-fn dispatch(cmd: &str) -> Option<Box<dyn Command>> {
-    match cmd {
-        "set" => Some(Box::new(interpreter::Set)),
-        _ => None,
+impl Context<'_> for Env {
+    fn eval(&mut self, cmd: &str, args: &[Cow<str>]) -> Result<String, ()> {
+        match cmd {
+            "set" => interpreter::Set.eval(args),
+            _ => Err(()),
+        }
     }
 }
