@@ -148,6 +148,8 @@ pub fn parse(input: &str) -> Result<Vec<Command<'_>>, Err<(&str, ErrorKind)>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
+    use std::{env, fs};
 
     // Word::Quoted from str
     fn q(s: &str) -> Word<'_> {
@@ -436,4 +438,16 @@ mod tests {
             ])
         )
     }
+
+    // #[test]
+    // fn test_bench() {
+    //     let manifest_path = env!("CARGO_MANIFEST_DIR");
+    //     let script_path = Path::new(&manifest_path);
+    //     let script_path = script_path.join("tests/pkg.tcl");
+    //     let script = fs::read_to_string(&script_path).expect("Error reading input file");
+    //
+    //     for _ in 0..100_000 {
+    //         assert!(parse(&script).is_ok())
+    //     }
+    // }
 }

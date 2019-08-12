@@ -11,11 +11,7 @@ pub struct Interpreter<F: Fn(&str) -> Option<Box<dyn Command<'_>>>> {
     dispatch: F,
 }
 
-pub struct Set {}
-
-impl Set {
-    pub const NAME: &'static str = "set";
-}
+pub struct Set;
 
 impl<F> Interpreter<F>
 where
@@ -31,8 +27,10 @@ where
             for token in command.0.iter() {
                 match token {
                     Token::List(words) => {
-                        let words: Vec<_> =
-                            words.iter().map(unescape_and_substitute_variables).collect();
+                        let words: Vec<_> = words
+                            .iter()
+                            .map(unescape_and_substitute_variables)
+                            .collect();
                         result = (self.dispatch)(words[0].as_ref())
                             .expect("unknown command")
                             .eval(&words[1..]); // TODO handle no args
@@ -66,6 +64,28 @@ fn unescape_and_substitute_variables<'a>(word: &'a Word<'a>) -> Cow<'a, str> {
     }
 }
 
+/// Processes backslash escapes.
 fn unescape(escaped: &str) -> Cow<'_, str> {
-    Cow::from(escaped)
+    // It it worth doing this or would it be better to just always allocate a new string?
+    if escaped.contains('\\') {
+        let mut result = String::new();
+        let mut chars = escaped.chars();
+
+        loop {
+            match chars.next() {
+                Some('\\') => match chars.next().expect("truncated escape sequence") {
+                    '\\' => result.push('\\'),
+                    '"' => result.push('"'),
+                    'n' => result.push('\n'),
+                    c => panic!("invalid escape sequence '{}'", c),
+                },
+                Some(c) => result.push(c),
+                None => break,
+            };
+        }
+
+        Cow::from(result)
+    } else {
+        Cow::from(escaped)
+    }
 }
