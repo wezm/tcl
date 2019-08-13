@@ -25,7 +25,7 @@ fn main() {
 }
 
 impl Context<'_> for Env {
-    fn eval(&mut self, cmd: &str, args: &[Cow<str>]) -> Result<String, ()> {
+    fn eval(&mut self, interpreter: Interpreter<'_, Self>, cmd: &str, args: &[Cow<str>]) -> Result<String, ()> {
         match cmd {
             "set" => interpreter::Set.eval(args),
             _ => Err(()),

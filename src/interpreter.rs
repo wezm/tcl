@@ -1,16 +1,17 @@
 use std::borrow::Cow;
 use std::marker::PhantomData;
+use std::collections::HashMap;
 
 use crate::parser::{self, Token, Word};
 
 pub type EvalResult = Result<String, ()>;
 
 pub trait Command<'a> {
-    fn eval(&self, args: &[Cow<'a, str>]) -> EvalResult;
+    fn eval<C: Context<'a>>(&self, interpreter: Interpreter<'a, C>, args: &[Cow<'a, str>]) -> EvalResult;
 }
 
 pub trait Context<'a> {
-    fn eval(&mut self, cmd: &str, args: &[Cow<'a, str>]) -> EvalResult;
+    fn eval(&mut self, interpreter: &Interpreter<'a, Self>, cmd: &str, args: &[Cow<'a, str>]) -> EvalResult where Self: Sized;
 }
 
 pub struct Set;
@@ -18,6 +19,7 @@ pub struct Set;
 pub struct Interpreter<'a, C: Context<'a>> {
     context: C,
     lifetime: PhantomData<&'a C>,
+    variables: HashMap<String, String>,
 }
 
 impl<'a, C> Interpreter<'a, C>
@@ -28,6 +30,7 @@ where
         Interpreter {
             context,
             lifetime: PhantomData,
+            variables: HashMap::new(),
         }
     }
 
@@ -44,7 +47,7 @@ where
                         // TODO: Handle built-in commands
                         result = self
                             .context
-                            .eval(words[0].as_ref(), &words[1..])
+                            .eval(&self, words[0].as_ref(), &words[1..])
                             .expect("unknown command")
 
                         // TODO: it will need access to the interpreter state
@@ -62,7 +65,7 @@ where
 }
 
 impl<'a> Command<'a> for Set {
-    fn eval(&self, args: &[Cow<'a, str>]) -> EvalResult {
+    fn eval<C: Context<'a>>(&self, interpreter: Interpreter<'a, C>, args: &[Cow<'a, str>]) -> EvalResult {
         println!("{:?}", args);
 
         Ok(String::new())
