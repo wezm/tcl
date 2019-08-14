@@ -1,17 +1,33 @@
 use std::borrow::Cow;
-use std::marker::PhantomData;
 use std::collections::HashMap;
+use std::fmt;
+use std::marker::PhantomData;
 
 use crate::parser::{self, Token, Word};
 
-pub type EvalResult = Result<String, ()>;
+pub type EvalResult = Result<String, Error>;
+pub type Variables = HashMap<String, String>;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Error {
+    Arity {
+        cmd: &'static str,
+        expected: usize,
+        received: usize,
+    },
+    UnknownCommand {
+        cmd: String,
+    },
+}
 
 pub trait Command<'a> {
-    fn eval<C: Context<'a>>(&self, interpreter: Interpreter<'a, C>, args: &[Cow<'a, str>]) -> EvalResult;
+    fn eval(&self, variables: &mut Variables, args: &[Cow<'a, str>]) -> EvalResult;
 }
 
 pub trait Context<'a> {
-    fn eval(&mut self, interpreter: &Interpreter<'a, Self>, cmd: &str, args: &[Cow<'a, str>]) -> EvalResult where Self: Sized;
+    fn eval(&mut self, variables: &mut Variables, cmd: &str, args: &[Cow<'a, str>]) -> EvalResult
+    where
+        Self: Sized;
 }
 
 pub struct Set;
@@ -19,7 +35,7 @@ pub struct Set;
 pub struct Interpreter<'a, C: Context<'a>> {
     context: C,
     lifetime: PhantomData<&'a C>,
-    variables: HashMap<String, String>,
+    variables: Option<Variables>,
 }
 
 impl<'a, C> Interpreter<'a, C>
@@ -30,13 +46,16 @@ where
         Interpreter {
             context,
             lifetime: PhantomData,
-            variables: HashMap::new(),
+            variables: Some(HashMap::new()),
         }
     }
 
     pub fn eval(&mut self, commands: &'a [parser::Command<'_>]) -> EvalResult {
         let mut result = String::new();
+        let mut variables = self.variables.take().unwrap();
+
         for command in commands {
+            dbg!(&commands);
             for token in command.0.iter() {
                 match token {
                     Token::List(words) => {
@@ -45,28 +64,36 @@ where
                             .map(unescape_and_substitute_variables)
                             .collect();
                         // TODO: Handle built-in commands
-                        result = self
-                            .context
-                            .eval(&self, words[0].as_ref(), &words[1..])
-                            .expect("unknown command")
+                        result =
+                            self.context
+                                .eval(&mut variables, words[0].as_ref(), &words[1..])?;
 
                         // TODO: it will need access to the interpreter state
                         // structs for each command that impl a trait?
                         // needs to be extensible/easy to add new commands
                         // maximising static dispatch would probably beneficial
                     }
-                    Token::Subst(_subst) => {}
+                    Token::Subst(_subst) => unimplemented!(),
                 }
             }
         }
 
+        self.variables.replace(variables);
         Ok(result)
     }
 }
 
 impl<'a> Command<'a> for Set {
-    fn eval<C: Context<'a>>(&self, interpreter: Interpreter<'a, C>, args: &[Cow<'a, str>]) -> EvalResult {
-        println!("{:?}", args);
+    fn eval(&self, variables: &mut Variables, args: &[Cow<'a, str>]) -> EvalResult {
+        if args.len() != 2 {
+            return Err(Error::Arity {
+                cmd: "set",
+                expected: 2,
+                received: args.len(),
+            });
+        }
+
+        variables.insert(args[0].to_string(), args[1].to_string());
 
         Ok(String::new())
     }
@@ -106,6 +133,25 @@ fn unescape(escaped: &str) -> Cow<'_, str> {
     }
 }
 
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Error::Arity {
+                cmd,
+                expected,
+                received,
+            } => write!(
+                f,
+                "Expected {} arguments to '{}', received {}",
+                expected, cmd, received
+            ),
+            Error::UnknownCommand { cmd } => write!(f, "Unknown command '{}'", cmd),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
+
 #[cfg(test)]
 mod tests {
     use super::unescape;
@@ -131,7 +177,7 @@ mod tests {
         result
     }
 
-    #[test]
+    // #[test]
     fn bench_unescape() {
         println!(
             "unescape:        {}",
