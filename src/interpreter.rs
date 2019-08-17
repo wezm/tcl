@@ -111,12 +111,12 @@ fn unescape(escaped: &str) -> Cow<'_, str> {
     // Benchmarks show that this check is worth it given the common case of text with
     // no escape characters.
     if escaped.contains('\\') {
-        let mut result = String::new();
+        let mut result = String::with_capacity(escaped.len());
         let mut chars = escaped.chars();
 
         loop {
             match chars.next() {
-                Some('\\') => match chars.next().expect("truncated escape sequence") {
+                Some('\\') => match chars.next().expect("FIXME: truncated escape sequence") {
                     '\\' => result.push('\\'),
                     '"' => result.push('"'),
                     'n' => result.push('\n'),
