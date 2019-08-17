@@ -31,6 +31,7 @@ impl Context<'_> for Env {
     fn eval(&mut self, variables: &mut Variables, cmd: &str, args: &[Cow<str>]) -> EvalResult {
         match cmd {
             "set" => interpreter::Set.eval(variables, args),
+            "puts" => interpreter::Puts.eval(variables, args),
             _ => Err(Error::UnknownCommand {
                 cmd: cmd.to_owned(),
             }),

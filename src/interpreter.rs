@@ -1,3 +1,5 @@
+mod command;
+
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
@@ -5,6 +7,8 @@ use std::marker::PhantomData;
 
 use crate::parser::{self, Word};
 use crate::variables::substitute;
+
+pub use command::{Command, Puts, Set};
 
 pub type EvalResult = Result<String, Error>;
 pub type Variables = HashMap<String, String>;
@@ -21,17 +25,11 @@ pub enum Error {
     },
 }
 
-pub trait Command<'a> {
-    fn eval(&self, variables: &mut Variables, args: &[Cow<'a, str>]) -> EvalResult;
-}
-
 pub trait Context<'a> {
     fn eval(&mut self, variables: &mut Variables, cmd: &str, args: &[Cow<'a, str>]) -> EvalResult
     where
         Self: Sized;
 }
-
-pub struct Set;
 
 pub struct Interpreter<'a, C: Context<'a>> {
     context: C,
@@ -56,8 +54,6 @@ where
         let mut variables = self.variables.take().unwrap();
 
         for command in commands {
-            dbg!(&command);
-
             let args = command
                 .0
                 .iter()
@@ -73,22 +69,6 @@ where
 
         self.variables.replace(variables);
         Ok(result)
-    }
-}
-
-impl<'a> Command<'a> for Set {
-    fn eval(&self, variables: &mut Variables, args: &[Cow<'a, str>]) -> EvalResult {
-        if args.len() != 2 {
-            return Err(Error::Arity {
-                cmd: "set",
-                expected: 2,
-                received: args.len(),
-            });
-        }
-
-        variables.insert(args[0].to_string(), args[1].to_string());
-
-        Ok(String::new())
     }
 }
 
