@@ -148,8 +148,6 @@ pub fn parse(input: &str) -> Result<Vec<Command<'_>>, Err<(&str, ErrorKind)>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
-    use std::{env, fs};
 
     // Word::Quoted from str
     fn q(s: &str) -> Word<'_> {
