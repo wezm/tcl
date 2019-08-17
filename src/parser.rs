@@ -347,12 +347,9 @@ mod tests {
                     b("configure_args"),
                     b("--enable-shared"),
                     b("--disable-rpath"),
-                    b("DOXYGEN"),
-                    b("/usr/bin/doxygen"),
-                    b("DOT"),
-                    b("/usr/bin/dot"),
-                    b("PKG_CONFIG"),
-                    b("/usr/bin/pkg-config")
+                    b("DOXYGEN=/usr/bin/doxygen"),
+                    b("DOT=/usr/bin/dot"),
+                    b("PKG_CONFIG=/usr/bin/pkg-config")
                 ]),
                 Command(vec![b("make_build_args"), b("all"), b("capi")]),
                 Command(vec![

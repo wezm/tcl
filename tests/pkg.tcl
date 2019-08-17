@@ -7,7 +7,7 @@ pkgname $name
 version $version
 revision 2
 build-style gnu-configure
-configure_args --enable-shared --disable-rpath DOXYGEN /usr/bin/doxygen DOT /usr/bin/dot PKG_CONFIG /usr/bin/pkg-config
+configure_args --enable-shared --disable-rpath DOXYGEN=/usr/bin/doxygen DOT=/usr/bin/dot PKG_CONFIG=/usr/bin/pkg-config
 make_build_args all capi
 hostmakedepends pkg-config bison groff
 makedepends {
