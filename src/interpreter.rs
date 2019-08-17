@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
 
-use crate::parser::{self, Token, Word};
+use crate::parser::{self, Word};
+use crate::variables::substitute;
 
 pub type EvalResult = Result<String, Error>;
 pub type Variables = HashMap<String, String>;
@@ -61,8 +62,8 @@ where
                 .0
                 .iter()
                 .map(|word| match word {
-                    Word::Bare(text) => Cow::from(*text),
-                    Word::Quoted(text) => unescape(text),
+                    Word::Bare(text) => substitute(Cow::from(*text), &variables).expect("FIXME"),
+                    Word::Quoted(text) => substitute(unescape(text), &variables).expect("FIXME"),
                     Word::Subst(_) => unimplemented!(),
                 })
                 .collect::<Vec<_>>();

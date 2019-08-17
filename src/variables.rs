@@ -1,6 +1,6 @@
 use crate::interpreter::Variables;
 use nom::branch::alt;
-use nom::bytes::complete::{escaped, tag, take_while, take_while1};
+use nom::bytes::complete::{tag, take_while1};
 use nom::character::complete::char as chr;
 use nom::combinator::{all_consuming, map};
 use nom::error::ErrorKind;
@@ -44,16 +44,17 @@ fn bracketed_variable(input: &str) -> IResult<&str, &str> {
 }
 
 fn parse(input: &str) -> Result<Vec<Text<'_>>, Err<(&str, ErrorKind)>> {
+    if input.is_empty() {
+        return Ok(Vec::new());
+    }
+
     let text_or_variables = many1(alt((text, variable)));
     all_consuming(text_or_variables)(input).map(|(_remaining, text)| text)
 }
 
-pub fn substitute<'a>(
-    input: &'a str,
-    vars: &Variables,
-) -> Result<Cow<'a, str>, Err<(&'a str, ErrorKind)>> {
-    match &*parse(input)? {
-        [Text::Text(s)] => Ok(Cow::from(*s)), // Common case, no variables
+pub fn substitute<'a>(input: Cow<'a, str>, vars: &Variables) -> Result<Cow<'a, str>, ()> {
+    match &*parse(&input).map_err(|_err| ())? {
+        [Text::Text(_)] => Ok(input), // Common case, no variables return as is
         fragments => {
             let string = fragments
                 .iter()
@@ -62,7 +63,7 @@ pub fn substitute<'a>(
                         Text::Text(s) => string.push_str(s),
                         Text::Variable(name) => {
                             string.push_str(vars.get(*name).map(String::as_str).unwrap_or(""))
-                        } // FIXME, double indirection of Variable isn't needed I think
+                        }
                     }
                     string
                 });
@@ -74,15 +75,15 @@ pub fn substitute<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     #[test]
-    #[ignore]
-    fn test_empty_string() {
+    fn test_parse_empty_string() {
         assert_eq!(parse(""), Ok(vec![]));
     }
 
     #[test]
-    fn test_no_variable() {
+    fn test_parse_no_variable() {
         assert_eq!(
             parse("Just some text"),
             Ok(vec![Text::Text("Just some text")])
@@ -90,7 +91,7 @@ mod tests {
     }
 
     #[test]
-    fn test_inline_variable() {
+    fn test_parse_inline_variable() {
         assert_eq!(
             parse("Just some $thing"),
             Ok(vec![Text::Text("Just some "), Text::Variable("thing")])
@@ -98,7 +99,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bracketed_variable() {
+    fn test_parse_bracketed_variable() {
         assert_eq!(
             parse("Just ${a complicated variable name!} text"),
             Ok(vec![
@@ -106,6 +107,51 @@ mod tests {
                 Text::Variable("a complicated variable name!"),
                 Text::Text(" text")
             ])
+        );
+    }
+
+    #[test]
+    fn test_substitute_inline_variable() {
+        let mut variables = HashMap::new();
+        variables.insert("thing".to_string(), "test".to_string());
+
+        assert_eq!(
+            substitute(Cow::from("Just some $thing"), &variables),
+            Ok(Cow::from("Just some test"))
+        );
+    }
+
+    #[test]
+    fn test_substitute_missing_variable() {
+        assert_eq!(
+            substitute(Cow::from("Just some $thing"), &HashMap::new()),
+            Ok(Cow::from("Just some "))
+        );
+    }
+
+    #[test]
+    fn test_substitute_bracketed_variable() {
+        assert_eq!(
+            parse("Just ${a complicated variable name!} text"),
+            Ok(vec![
+                Text::Text("Just "),
+                Text::Variable("a complicated variable name!"),
+                Text::Text(" text")
+            ])
+        );
+
+        let mut variables = HashMap::new();
+        variables.insert(
+            "a complicated variable name!".to_string(),
+            "test".to_string(),
+        );
+
+        assert_eq!(
+            substitute(
+                Cow::from("Just ${a complicated variable name!} text"),
+                &variables
+            ),
+            Ok(Cow::from("Just test text"))
         );
     }
 }
