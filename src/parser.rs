@@ -14,11 +14,11 @@ use nom::{Err, IResult};
 // Double quotes can be used to ignore special characters like space
 // Each command evaluates to a single result value
 
-//pub type Word<'a> = &'a str;
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Word<'a> {
     Bare(&'a str),
     Quoted(&'a str),
+    Subst(Command<'a>),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -28,7 +28,7 @@ pub enum Token<'a> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Command<'a>(pub(crate) Vec<Token<'a>>);
+pub struct Command<'a>(pub(crate) Vec<Word<'a>>);
 
 fn is_space(c: char) -> bool {
     c == ' ' || c == '\t'
@@ -53,14 +53,6 @@ fn sep(input: &str) -> IResult<&str, &str> {
 fn word(input: &str) -> IResult<&str, Word<'_>> {
     map(take_while1(is_word), Word::Bare)(input)
 }
-
-//fn decode_escapes(escape: &str) -> IResult<&str, &str> {
-//    alt((
-//    map(tag("\\"),  |_| "\\" ),
-//       map(tag("\"") ,  |_| "\"" ),
-//       map(tag("n"), |_| "\n" )
-//    ))(escape)
-//}
 
 fn escaped_text(input: &str) -> IResult<&str, &str> {
     let allowed = take_while1(|c| c != '\\' && c != '"');
@@ -114,11 +106,9 @@ fn command(input: &str) -> IResult<&str, Command<'_>> {
 
     let cmd = terminated(
         fold_many1(inner, Vec::new(), |mut acc: Vec<_>, item| {
-            match (item, acc.last_mut()) {
-                (Token::List(ref mut list), Some(Token::List(last))) => {
-                    last.append(list);
-                }
-                (item, _) => acc.push(item),
+            match item {
+                Token::List(mut words) => acc.append(&mut words),
+                Token::Subst(subst) => acc.push(Word::Subst(subst)),
             }
 
             acc
@@ -230,15 +220,16 @@ mod tests {
     fn test_subst() {
         assert_eq!(
             subst("[ + 1 2 ]"),
-            Ok(("", Command(vec![Token::List(vec![b("+"), b("1"), b("2")])])))
+            Ok(("", Command(vec![b("+"), b("1"), b("2")])))
         );
         assert_eq!(
             subst("[ + 1 [ - 4 2 ] ]"),
             Ok((
                 "",
                 Command(vec![
-                    Token::List(vec![b("+"), b("1")]),
-                    Token::Subst(Command(vec![Token::List(vec![b("-"), b("4"), b("2")])]))
+                    b("+"),
+                    b("1"),
+                    Word::Subst(Command(vec![b("-"), b("4"), b("2")]))
                 ])
             ))
         );
@@ -246,12 +237,7 @@ mod tests {
             subst(r#"[ replace $version \..* "" ]"#),
             Ok((
                 "",
-                Command(vec![Token::List(vec![
-                    b("replace"),
-                    b("$version"),
-                    b(r#"\..*"#),
-                    q("")
-                ])])
+                Command(vec![b("replace"), b("$version"), b(r#"\..*"#), q("")])
             ))
         );
     }
@@ -260,41 +246,29 @@ mod tests {
     fn test_command() {
         assert_eq!(
             command("hello { world }"),
-            Ok(("", Command(vec![Token::List(vec![b("hello"), b("world")])])))
+            Ok(("", Command(vec![b("hello"), b("world")])))
         );
         assert_eq!(
             command("hello \"{[ world ]}\""),
-            Ok((
-                "",
-                Command(vec![Token::List(vec![b("hello"), q("{[ world ]}")])])
-            ))
+            Ok(("", Command(vec![b("hello"), q("{[ world ]}")])))
         );
         assert_eq!(
             command("puts \"Hello, world\""),
-            Ok((
-                "",
-                Command(vec![Token::List(vec![b("puts"), q("Hello, world")])])
-            ))
+            Ok(("", Command(vec![b("puts"), q("Hello, world")])))
         );
         assert_eq!(
             command("demo {\n  hello\n  world\n}"),
-            Ok((
-                "",
-                Command(vec![Token::List(vec![b("demo"), b("hello"), b("world")])])
-            ))
+            Ok(("", Command(vec![b("demo"), b("hello"), b("world")])))
         );
         assert_eq!(
             command("demo {\n  hello world\n}"),
-            Ok((
-                "",
-                Command(vec![Token::List(vec![b("demo"), b("hello"), b("world")])])
-            ))
+            Ok(("", Command(vec![b("demo"), b("hello"), b("world")])))
         );
         assert_eq!(
             command("hello { world }\ndemo {\n  hello\n  world\n}\n"),
             Ok((
                 "\ndemo {\n  hello\n  world\n}\n",
-                Command(vec![Token::List(vec![b("hello"), b("world")])])
+                Command(vec![b("hello"), b("world")])
             ))
         )
     }
@@ -306,13 +280,14 @@ mod tests {
             Ok((
                 "",
                 Command(vec![
-                    Token::List(vec![b("set"), b("subdir")]),
-                    Token::Subst(Command(vec![Token::List(vec![
+                    b("set"),
+                    b("subdir"),
+                    Word::Subst(Command(vec![
                         b("replace"),
                         b("$version"),
                         b(r#"\..*"#),
                         q("")
-                    ])]))
+                    ]))
                 ])
             ))
         );
@@ -329,10 +304,7 @@ mod tests {
     fn test_parse_single() {
         assert_eq!(
             parse("hello { world }"),
-            Ok(vec![Command(vec![Token::List(vec![
-                b("hello"),
-                b("world")
-            ])]),])
+            Ok(vec![Command(vec![b("hello"), b("world")])])
         );
     }
 
@@ -341,8 +313,8 @@ mod tests {
         assert_eq!(
             parse("hello { world }\ndemo {\n  hello\n  world\n}\n"),
             Ok(vec![
-                Command(vec![Token::List(vec![b("hello"), b("world")])]),
-                Command(vec![Token::List(vec![b("demo"), b("hello"), b("world")])])
+                Command(vec![b("hello"), b("world")]),
+                Command(vec![b("demo"), b("hello"), b("world")])
             ])
         );
     }
@@ -354,30 +326,24 @@ mod tests {
         assert_eq!(
             result,
             Ok(vec![
-                Command(vec![Token::List(vec![b("set"), b("name"), b("ruby")])]),
-                Command(vec![Token::List(vec![b("set"), b("version"), b("2.6.3")])]),
-                Command(vec![Token::List(vec![
-                    b("set"),
-                    b("ruby_abiver"),
-                    b("2.6.0")
-                ])]),
+                Command(vec![b("set"), b("name"), b("ruby")]),
+                Command(vec![b("set"), b("version"), b("2.6.3")]),
+                Command(vec![b("set"), b("ruby_abiver"), b("2.6.0")]),
                 Command(vec![
-                    Token::List(vec![b("set"), b("subdir")]),
-                    Token::Subst(Command(vec![Token::List(vec![
+                    b("set"),
+                    b("subdir"),
+                    Word::Subst(Command(vec![
                         b("replace"),
                         b("$version"),
                         b(r#"\..*"#),
                         q("")
-                    ])]))
+                    ]))
                 ]),
-                Command(vec![Token::List(vec![b("pkgname"), b("$name")])]),
-                Command(vec![Token::List(vec![b("version"), b("$version")])]),
-                Command(vec![Token::List(vec![b("revision"), b("2")])]),
-                Command(vec![Token::List(vec![
-                    b("build-style"),
-                    b("gnu-configure")
-                ])]),
-                Command(vec![Token::List(vec![
+                Command(vec![b("pkgname"), b("$name")]),
+                Command(vec![b("version"), b("$version")]),
+                Command(vec![b("revision"), b("2")]),
+                Command(vec![b("build-style"), b("gnu-configure")]),
+                Command(vec![
                     b("configure_args"),
                     b("--enable-shared"),
                     b("--disable-rpath"),
@@ -387,19 +353,15 @@ mod tests {
                     b("/usr/bin/dot"),
                     b("PKG_CONFIG"),
                     b("/usr/bin/pkg-config")
-                ])]),
-                Command(vec![Token::List(vec![
-                    b("make_build_args"),
-                    b("all"),
-                    b("capi")
-                ])]),
-                Command(vec![Token::List(vec![
+                ]),
+                Command(vec![b("make_build_args"), b("all"), b("capi")]),
+                Command(vec![
                     b("hostmakedepends"),
                     b("pkg-config"),
                     b("bison"),
                     b("groff")
-                ])]),
-                Command(vec![Token::List(vec![
+                ]),
+                Command(vec![
                     b("makedepends"),
                     b("zlib-devel"),
                     b("readline-devel"),
@@ -408,42 +370,32 @@ mod tests {
                     b("gdbm-devel"),
                     b("libyaml-devel"),
                     b("pango-devel")
-                ])]),
-                Command(vec![Token::List(vec![b("checkdepends"), b("tzdata")])]),
-                Command(vec![Token::List(vec![
-                    b("short_desc"),
-                    q("Ruby programming language")
-                ])]),
-                Command(vec![Token::List(vec![
-                    b("homepage"),
-                    b("http://www.ruby-lang.org/en/")
-                ])]),
-                Command(vec![Token::List(vec![
-                    b("maintainer"),
-                    q("Wesley Moore <wes@wezm.net>")
-                ])]),
-                Command(vec![Token::List(vec![
-                    b("license"),
-                    b("Ruby"),
-                    b("BSD-2-Clause")
-                ])]),
-                Command(vec![Token::List(vec![
+                ]),
+                Command(vec![b("checkdepends"), b("tzdata")]),
+                Command(vec![b("short_desc"), q("Ruby programming language")]),
+                Command(vec![b("homepage"), b("http://www.ruby-lang.org/en/")]),
+                Command(vec![b("maintainer"), q("Wesley Moore <wes@wezm.net>")]),
+                Command(vec![b("license"), b("Ruby"), b("BSD-2-Clause")]),
+                Command(vec![
                     b("distfile"),
                     b("https://cache.ruby-lang.org/pub/ruby/$subdir/$pkgname-$version.tar.bz2"),
                     b("checksum"),
                     b("dd638bf42059182c1d04af0d5577131d4ce70b79105231c4cc0a60de77b14f2e")
-                ])])
+                ])
             ])
         )
     }
 
     // #[test]
     // fn test_bench() {
+    //     use std::path::Path;
+    //     use std::fs;
+
     //     let manifest_path = env!("CARGO_MANIFEST_DIR");
     //     let script_path = Path::new(&manifest_path);
     //     let script_path = script_path.join("tests/pkg.tcl");
     //     let script = fs::read_to_string(&script_path).expect("Error reading input file");
-    //
+
     //     for _ in 0..100_000 {
     //         assert!(parse(&script).is_ok())
     //     }

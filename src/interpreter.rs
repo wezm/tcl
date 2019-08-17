@@ -55,27 +55,19 @@ where
         let mut variables = self.variables.take().unwrap();
 
         for command in commands {
-            dbg!(&commands);
-            for token in command.0.iter() {
-                match token {
-                    Token::List(words) => {
-                        let words: Vec<_> = words
-                            .iter()
-                            .map(unescape_and_substitute_variables)
-                            .collect();
-                        // TODO: Handle built-in commands
-                        result =
-                            self.context
-                                .eval(&mut variables, words[0].as_ref(), &words[1..])?;
+            dbg!(&command);
 
-                        // TODO: it will need access to the interpreter state
-                        // structs for each command that impl a trait?
-                        // needs to be extensible/easy to add new commands
-                        // maximising static dispatch would probably beneficial
-                    }
-                    Token::Subst(_subst) => unimplemented!(),
-                }
-            }
+            let args = command
+                .0
+                .iter()
+                .map(|word| match word {
+                    Word::Bare(text) => Cow::from(*text),
+                    Word::Quoted(text) => unescape(text),
+                    Word::Subst(_) => unimplemented!(),
+                })
+                .collect::<Vec<_>>();
+
+            result = self.context.eval(&mut variables, &args[0], &args[1..])?;
         }
 
         self.variables.replace(variables);
@@ -96,13 +88,6 @@ impl<'a> Command<'a> for Set {
         variables.insert(args[0].to_string(), args[1].to_string());
 
         Ok(String::new())
-    }
-}
-
-fn unescape_and_substitute_variables<'a>(word: &'a Word<'a>) -> Cow<'a, str> {
-    match word {
-        Word::Bare(s) => Cow::from(*s),
-        Word::Quoted(s) => unescape(s), // TODO: substitute variables in the escaped text
     }
 }
 
