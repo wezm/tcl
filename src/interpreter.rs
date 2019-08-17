@@ -23,6 +23,15 @@ pub enum Error {
     UnknownCommand {
         cmd: String,
     },
+    Conversion {
+        value: String,
+        message: &'static str,
+    },
+    Malformed {
+        cmd: &'static str,
+        message: &'static str,
+        got: Vec<String>,
+    },
 }
 
 pub trait Context<'a> {
@@ -70,6 +79,10 @@ where
         self.variables.replace(variables);
         Ok(result)
     }
+
+    pub fn context(&self) -> &C {
+        &self.context
+    }
 }
 
 /// Processes backslash escapes.
@@ -112,6 +125,16 @@ impl fmt::Display for Error {
                 expected, cmd, received
             ),
             Error::UnknownCommand { cmd } => write!(f, "Unknown command '{}'", cmd),
+            Error::Conversion { value, message } => {
+                write!(f, "Unable to convert '{}': {}", value, message)
+            }
+            Error::Malformed { cmd, message, got } => write!(
+                f,
+                "Malformed '{}' command: {} got {}",
+                cmd,
+                message,
+                got.join(" ")
+            ),
         }
     }
 }
