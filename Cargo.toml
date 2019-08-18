@@ -3,6 +3,7 @@ name = "tcl"
 version = "0.1.0"
 authors = ["Wesley Moore <wes@wezm.net>"]
 edition = "2018"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 nom = "5.0"
