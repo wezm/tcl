@@ -91,6 +91,10 @@ where
     pub fn context(&self) -> &C {
         &self.context
     }
+
+    pub fn into_context(self) -> C {
+        self.context
+    }
 }
 
 /// Processes backslash escapes.
