@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use super::{Error, EvalResult, Variables};
 
 pub trait Command<'a> {
-    fn eval(&self, variables: &mut Variables, args: &[Cow<'a, str>]) -> EvalResult;
+    fn eval(&self, variables: &mut Variables, args: Vec<Cow<'a, str>>) -> EvalResult;
 }
 
 pub struct Set;
@@ -11,7 +11,7 @@ pub struct Set;
 pub struct Puts;
 
 impl<'a> Command<'a> for Set {
-    fn eval(&self, variables: &mut Variables, args: &[Cow<'a, str>]) -> EvalResult {
+    fn eval(&self, variables: &mut Variables, args: Vec<Cow<'a, str>>) -> EvalResult {
         if args.len() != 2 {
             return Err(Error::Arity {
                 cmd: "set",
@@ -27,7 +27,7 @@ impl<'a> Command<'a> for Set {
 }
 
 impl<'a> Command<'a> for Puts {
-    fn eval(&self, variables: &mut Variables, args: &[Cow<'a, str>]) -> EvalResult {
+    fn eval(&self, variables: &mut Variables, args: Vec<Cow<'a, str>>) -> EvalResult {
         println!("{}", args.join(" "));
 
         Ok(String::new())

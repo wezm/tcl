@@ -35,7 +35,12 @@ pub enum Error {
 }
 
 pub trait Context<'a> {
-    fn eval(&mut self, variables: &mut Variables, cmd: &str, args: &[Cow<'a, str>]) -> EvalResult
+    fn eval(
+        &mut self,
+        variables: &mut Variables,
+        cmd: Cow<'a, str>,
+        args: Vec<Cow<'a, str>>,
+    ) -> EvalResult
     where
         Self: Sized;
 }
@@ -58,22 +63,25 @@ where
         }
     }
 
-    pub fn eval(&mut self, commands: &'a [parser::Command<'_>]) -> EvalResult {
+    pub fn eval(&mut self, commands: Vec<parser::Command<'a>>) -> EvalResult {
         let mut result = String::new();
         let mut variables = self.variables.take().unwrap();
 
         for command in commands {
-            let args = command
+            let mut words = command
                 .0
-                .iter()
+                .into_iter()
                 .map(|word| match word {
-                    Word::Bare(text) => substitute(Cow::from(*text), &variables).expect("FIXME"),
+                    Word::Bare(text) => substitute(Cow::from(text), &variables).expect("FIXME"),
                     Word::Quoted(text) => substitute(unescape(text), &variables).expect("FIXME"),
                     Word::Subst(_) => unimplemented!(),
                 })
                 .collect::<Vec<_>>();
+            let args = words.split_off(1);
 
-            result = self.context.eval(&mut variables, &args[0], &args[1..])?;
+            result = self
+                .context
+                .eval(&mut variables, words.pop().unwrap(), args)?;
         }
 
         self.variables.replace(variables);

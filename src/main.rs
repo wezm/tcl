@@ -21,19 +21,24 @@ fn main() {
     let script = fs::read_to_string(&args[1]).expect("Error reading input file");
     let commands = parser::parse(&script).unwrap();
 
-    match tcl.eval(&commands) {
+    match tcl.eval(commands) {
         Ok(result) => println!("{}", result),
         Err(err) => eprintln!("Error: {}", err),
     }
 }
 
 impl Context<'_> for Env {
-    fn eval(&mut self, variables: &mut Variables, cmd: &str, args: &[Cow<str>]) -> EvalResult {
-        match cmd {
+    fn eval(
+        &mut self,
+        variables: &mut Variables,
+        cmd: Cow<'_, str>,
+        args: Vec<Cow<'_, str>>,
+    ) -> EvalResult {
+        match &*cmd {
             "set" => interpreter::Set.eval(variables, args),
             "puts" => interpreter::Puts.eval(variables, args),
             _ => Err(Error::UnknownCommand {
-                cmd: cmd.to_owned(),
+                cmd: cmd.to_string(),
             }),
         }
     }
