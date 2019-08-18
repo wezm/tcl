@@ -27,7 +27,7 @@ impl<'a> Command<'a> for Set {
 }
 
 impl<'a> Command<'a> for Puts {
-    fn eval(&self, variables: &mut Variables, args: Vec<Cow<'a, str>>) -> EvalResult {
+    fn eval(&self, _variables: &mut Variables, args: Vec<Cow<'a, str>>) -> EvalResult {
         println!("{}", args.join(" "));
 
         Ok(String::new())
