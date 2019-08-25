@@ -101,24 +101,27 @@ where
 }
 
 /// Perform variable substitution and return the resulting concatenated result.
-pub fn fragments_to_string<'a>(
+fn fragments_to_string<'a>(
     fragments: Vec<Text<'a>>,
     variables: &Variables,
     transform: impl Fn(&str) -> Cow<'_, str>,
 ) -> Cow<'a, str> {
-    // TODO: Handle common case of no variables and only one text fragment
-    let string = fragments
-        .into_iter()
-        .fold(String::new(), |mut string, fragment| {
-            match fragment {
-                Text::Text(s) => string.push_str(&transform(s)),
-                Text::Variable(name) => {
-                    string.push_str(variables.get(name).map(String::as_str).unwrap_or(""))
+    if let [Text::Text(text)] = fragments.as_slice() {
+        Cow::from(*text)
+    } else {
+        let string = fragments
+            .into_iter()
+            .fold(String::new(), |mut string, fragment| {
+                match fragment {
+                    Text::Text(s) => string.push_str(&transform(s)),
+                    Text::Variable(name) => {
+                        string.push_str(variables.get(name).map(String::as_str).unwrap_or(""))
+                    }
                 }
-            }
-            string
-        });
-    Cow::from(string)
+                string
+            });
+        Cow::from(string)
+    }
 }
 
 /// Processes backslash escapes.
