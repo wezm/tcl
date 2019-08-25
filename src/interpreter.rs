@@ -72,36 +72,10 @@ where
                 .into_iter()
                 .map(|word| match word {
                     Word::Bare(fragments) => {
-                        // TODO: Extract shared function for this
-                        // TODO: Handle common case of no variables and only one text fragment
-                        let string =
-                            fragments
-                                .into_iter()
-                                .fold(String::new(), |mut string, fragment| {
-                                    match fragment {
-                                        Text::Text(s) => string.push_str(s),
-                                        Text::Variable(name) => string.push_str(
-                                            variables.get(name).map(String::as_str).unwrap_or(""),
-                                        ),
-                                    }
-                                    string
-                                });
-                        Cow::from(string)
+                        fragments_to_string(fragments, &variables, |s| Cow::from(s))
                     }
                     Word::Quoted(fragments) => {
-                        let string =
-                            fragments
-                                .into_iter()
-                                .fold(String::new(), |mut string, fragment| {
-                                    match fragment {
-                                        Text::Text(s) => string.push_str(&unescape(s)),
-                                        Text::Variable(name) => string.push_str(
-                                            variables.get(name).map(String::as_str).unwrap_or(""),
-                                        ),
-                                    }
-                                    string
-                                });
-                        Cow::from(string)
+                        fragments_to_string(fragments, &variables, |s| unescape(s))
                     }
                     Word::Subst(_) => unimplemented!(),
                 })
@@ -124,6 +98,27 @@ where
     pub fn into_context(self) -> C {
         self.context
     }
+}
+
+/// Perform variable substitution and return the resulting concatenated result.
+pub fn fragments_to_string<'a>(
+    fragments: Vec<Text<'a>>,
+    variables: &Variables,
+    transform: impl Fn(&str) -> Cow<'_, str>,
+) -> Cow<'a, str> {
+    // TODO: Handle common case of no variables and only one text fragment
+    let string = fragments
+        .into_iter()
+        .fold(String::new(), |mut string, fragment| {
+            match fragment {
+                Text::Text(s) => string.push_str(&transform(s)),
+                Text::Variable(name) => {
+                    string.push_str(variables.get(name).map(String::as_str).unwrap_or(""))
+                }
+            }
+            string
+        });
+    Cow::from(string)
 }
 
 /// Processes backslash escapes.
