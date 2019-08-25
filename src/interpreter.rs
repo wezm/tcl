@@ -5,8 +5,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
 
-use crate::parser::{self, Word};
-use crate::variables::substitute;
+use crate::parser::{self, Text, Word};
 
 pub use command::{Command, Puts, Set};
 
@@ -72,8 +71,38 @@ where
                 .0
                 .into_iter()
                 .map(|word| match word {
-                    Word::Bare(text) => substitute(Cow::from(text), &variables).expect("FIXME"),
-                    Word::Quoted(text) => substitute(unescape(text), &variables).expect("FIXME"),
+                    Word::Bare(fragments) => {
+                        // TODO: Extract shared function for this
+                        // TODO: Handle common case of no variables and only one text fragment
+                        let string =
+                            fragments
+                                .into_iter()
+                                .fold(String::new(), |mut string, fragment| {
+                                    match fragment {
+                                        Text::Text(s) => string.push_str(s),
+                                        Text::Variable(name) => string.push_str(
+                                            variables.get(name).map(String::as_str).unwrap_or(""),
+                                        ),
+                                    }
+                                    string
+                                });
+                        Cow::from(string)
+                    }
+                    Word::Quoted(fragments) => {
+                        let string =
+                            fragments
+                                .into_iter()
+                                .fold(String::new(), |mut string, fragment| {
+                                    match fragment {
+                                        Text::Text(s) => string.push_str(&unescape(s)),
+                                        Text::Variable(name) => string.push_str(
+                                            variables.get(name).map(String::as_str).unwrap_or(""),
+                                        ),
+                                    }
+                                    string
+                                });
+                        Cow::from(string)
+                    }
                     Word::Subst(_) => unimplemented!(),
                 })
                 .collect::<Vec<_>>();
@@ -155,10 +184,111 @@ impl std::error::Error for Error {}
 
 #[cfg(test)]
 mod tests {
-    use super::unescape;
+    use super::*;
     use easybench::bench;
 
-    fn unescape_no_cow(escaped: &str) -> String {
+    struct Get;
+
+    impl<'a> Command<'a> for Get {
+        fn eval(&self, variables: &mut Variables, args: Vec<Cow<'a, str>>) -> EvalResult {
+            if args.len() != 1 {
+                return Err(Error::Arity {
+                    cmd: "get",
+                    expected: 1,
+                    received: args.len(),
+                });
+            }
+
+            match variables.get(&*args[0]) {
+                Some(var) => Ok(var.to_string()),
+                None => Ok(String::new()),
+            }
+        }
+    }
+
+    struct TestContext;
+
+    impl<'a> Context<'a> for TestContext {
+        fn eval(
+            &mut self,
+            variables: &mut Variables,
+            cmd: Cow<'a, str>,
+            args: Vec<Cow<'a, str>>,
+        ) -> EvalResult {
+            match &*cmd {
+                "set" => Set.eval(variables, args),
+                "get" => Get.eval(variables, args),
+                _ => Err(Error::UnknownCommand {
+                    cmd: cmd.to_string(),
+                }),
+            }
+        }
+    }
+
+    #[test]
+    fn test_interpret_variable() {
+        let input = "set example indirect\nset indirect found\nget $example";
+        let script = parser::parse(input).unwrap();
+        let test_context = TestContext;
+        let mut tcl = Interpreter::new(test_context);
+        assert_eq!(tcl.eval(script).unwrap(), "found".to_string());
+    }
+
+    #[test]
+    fn test_interpret_bracketed_variable() {
+        let input = "set example indirect\nset indirect found\nget ${example}";
+        let script = parser::parse(input).unwrap();
+        let test_context = TestContext;
+        let mut tcl = Interpreter::new(test_context);
+        assert_eq!(tcl.eval(script).unwrap(), "found".to_string());
+    }
+
+    //    #[test]
+    //    fn test_substitute_inline_variable() {
+    //        let mut variables = HashMap::new();
+    //        variables.insert("thing".to_string(), "test".to_string());
+    //
+    //        assert_eq!(
+    //            substitute(Cow::from("Just some $thing"), &variables),
+    //            Ok(Cow::from("Just some test"))
+    //        );
+    //    }
+    //
+    //    #[test]
+    //    fn test_substitute_missing_variable() {
+    //        assert_eq!(
+    //            substitute(Cow::from("Just some $thing"), &HashMap::new()),
+    //            Ok(Cow::from("Just some "))
+    //        );
+    //    }
+    //
+    //    #[test]
+    //    fn test_substitute_bracketed_variable() {
+    //        assert_eq!(
+    //            parse("Just ${a complicated variable name!} text"),
+    //            Ok(vec![
+    //                Text::Text("Just "),
+    //                Text::Variable("a complicated variable name!"),
+    //                Text::Text(" text")
+    //            ])
+    //        );
+    //
+    //        let mut variables = HashMap::new();
+    //        variables.insert(
+    //            "a complicated variable name!".to_string(),
+    //            "test".to_string(),
+    //        );
+    //
+    //        assert_eq!(
+    //            substitute(
+    //                Cow::from("Just ${a complicated variable name!} text"),
+    //                &variables
+    //            ),
+    //            Ok(Cow::from("Just test text"))
+    //        );
+    //    }
+
+    fn _unescape_no_cow(escaped: &str) -> String {
         let mut result = String::new();
         let mut chars = escaped.chars();
 
@@ -179,14 +309,14 @@ mod tests {
     }
 
     // #[test]
-    fn bench_unescape() {
+    fn _bench_unescape() {
         println!(
             "unescape:        {}",
             bench(|| unescape("This is some sample text without escapes"))
         );
         println!(
             "unescape_no_cow: {}",
-            bench(|| unescape_no_cow("This is some sample text without escapes"))
+            bench(|| _unescape_no_cow("This is some sample text without escapes"))
         );
 
         println!(
@@ -195,7 +325,7 @@ mod tests {
         );
         println!(
             "unescape_no_cow esc: {}",
-            bench(|| unescape_no_cow("This is some sample \\\"text\\\" with\\nescapes"))
+            bench(|| _unescape_no_cow("This is some sample \\\"text\\\" with\\nescapes"))
         );
     }
 }

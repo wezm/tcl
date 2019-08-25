@@ -15,9 +15,15 @@ use nom::{Err, IResult};
 // Each command evaluates to a single result value
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+pub enum Text<'a> {
+    Text(&'a str),
+    Variable(&'a str),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Word<'a> {
-    Bare(&'a str),
-    Quoted(&'a str),
+    Bare(Vec<Text<'a>>),
+    Quoted(Vec<Text<'a>>),
     Subst(Command<'a>),
 }
 
@@ -42,6 +48,11 @@ fn is_word(c: char) -> bool {
     is_grouped_word(c) && !is_end(c)
 }
 
+// Inside a group ; and \n are allowed
+fn is_grouped_word(c: char) -> bool {
+    c != '{' && c != '}' && c != '[' && c != ']' && c != '"' && c != '$' && !is_space(c)
+}
+
 fn ws(input: &str) -> IResult<&str, &str> {
     take_while(|c| is_space(c) || c == '\n')(input)
 }
@@ -50,20 +61,52 @@ fn sep(input: &str) -> IResult<&str, &str> {
     take_while(is_space)(input)
 }
 
-fn word(input: &str) -> IResult<&str, Word<'_>> {
-    map(take_while1(is_word), Word::Bare)(input)
+fn inline_variable_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
 }
 
-fn escaped_text(input: &str) -> IResult<&str, &str> {
-    let allowed = take_while1(|c| c != '\\' && c != '"');
-    escaped(allowed, '\\', one_of(r#"\"n"#))(input)
+fn bracketed_variable_char(c: char) -> bool {
+    c != '{' && c != '}'
+}
+
+fn text(input: &str) -> IResult<&str, Text<'_>> {
+    map(take_while1(is_word), Text::Text)(input)
+}
+
+fn escaped_text(input: &str) -> IResult<&str, Text<'_>> {
+    let allowed = take_while1(|c| c != '\\' && c != '"' && c != '$');
+    map(escaped(allowed, '\\', one_of(r#"\$"n"#)), Text::Text)(input)
+}
+
+fn variable(input: &str) -> IResult<&str, Text<'_>> {
+    map(alt((inline_variable, bracketed_variable)), Text::Variable)(input)
+}
+
+fn inline_variable(input: &str) -> IResult<&str, &str> {
+    preceded(chr('$'), take_while1(inline_variable_char))(input)
+}
+
+fn bracketed_variable(input: &str) -> IResult<&str, &str> {
+    delimited(tag("${"), take_while1(bracketed_variable_char), chr('}'))(input)
+}
+
+fn text_or_variable(input: &str) -> IResult<&str, Text<'_>> {
+    alt((text, variable))(input)
+}
+
+fn escaped_text_or_variable(input: &str) -> IResult<&str, Text<'_>> {
+    alt((escaped_text, variable))(input)
+}
+
+fn word(input: &str) -> IResult<&str, Word<'_>> {
+    map(many1(text_or_variable), Word::Bare)(input)
 }
 
 fn quoted_word(input: &str) -> IResult<&str, Word<'_>> {
     map(
         alt((
-            delimited(chr('"'), escaped_text, chr('"')),
-            map(tag("\"\""), |_| ""),
+            delimited(chr('"'), many1(escaped_text_or_variable), chr('"')),
+            map(tag("\"\""), |_| vec![Text::Text("")]),
         )),
         Word::Quoted,
     )(input)
@@ -71,12 +114,6 @@ fn quoted_word(input: &str) -> IResult<&str, Word<'_>> {
 
 fn word_list(input: &str) -> IResult<&str, Vec<Word<'_>>> {
     many1(preceded(sep, word_or_quoted))(input)
-}
-
-// Inside a group ; and \n are allowed
-fn is_grouped_word(c: char) -> bool {
-    // not(one_of("{}\"[]\\ \t"))
-    c != '{' && c != '}' && c != '[' && c != ']' && c != '"' && !is_space(c)
 }
 
 fn word_or_quoted(input: &str) -> IResult<&str, Word<'_>> {
@@ -141,12 +178,17 @@ mod tests {
 
     // Word::Quoted from str
     fn q(s: &str) -> Word<'_> {
-        Word::Quoted(s)
+        Word::Quoted(vec![Text::Text(s)])
     }
 
     // Word::Bare from str
     fn b(s: &str) -> Word<'_> {
-        Word::Bare(s)
+        Word::Bare(vec![Text::Text(s)])
+    }
+
+    // Variable from str
+    fn v(s: &str) -> Word<'_> {
+        Word::Bare(vec![Text::Variable(s)])
     }
 
     #[test]
@@ -202,6 +244,65 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_no_variable() {
+        assert_eq!(
+            quoted_word(r#""Just some text""#),
+            Ok(("", Word::Quoted(vec![Text::Text("Just some text")])))
+        );
+    }
+
+    #[test]
+    fn test_parse_inline_variable() {
+        assert_eq!(
+            word("Some$thing"),
+            Ok((
+                "",
+                Word::Bare(vec![Text::Text("Some"), Text::Variable("thing")])
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_bracketed_variable() {
+        assert_eq!(
+            word("${a complicated variable name!}text"),
+            Ok((
+                "",
+                Word::Bare(vec![
+                    Text::Variable("a complicated variable name!"),
+                    Text::Text("text"),
+                ])
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_quoted_inline_variable() {
+        assert_eq!(
+            quoted_word(r#""Just some $thing""#),
+            Ok((
+                "",
+                Word::Quoted(vec![Text::Text("Just some "), Text::Variable("thing")])
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_quoted_bracketed_variable() {
+        assert_eq!(
+            quoted_word(r#""Just ${a complicated variable name!} text""#),
+            Ok((
+                "",
+                Word::Quoted(vec![
+                    Text::Text("Just "),
+                    Text::Variable("a complicated variable name!"),
+                    Text::Text(" text")
+                ])
+            ))
+        );
+    }
+
+    #[test]
     fn test_group() {
         assert_eq!(group("{ world }"), Ok(("", vec![b("world")])));
         assert_eq!(group("{world}"), Ok(("", vec![b("world")])));
@@ -237,7 +338,7 @@ mod tests {
             subst(r#"[ replace $version \..* "" ]"#),
             Ok((
                 "",
-                Command(vec![b("replace"), b("$version"), b(r#"\..*"#), q("")])
+                Command(vec![b("replace"), v("version"), b(r#"\..*"#), q("")])
             ))
         );
     }
@@ -270,7 +371,15 @@ mod tests {
                 "\ndemo {\n  hello\n  world\n}\n",
                 Command(vec![b("hello"), b("world")])
             ))
-        )
+        );
+        assert_eq!(
+            command(r#""hello { brackets }""#),
+            Ok(("", Command(vec![q("hello { brackets }")])))
+        );
+        assert_eq!(
+            command("puts ${example}"),
+            Ok(("", Command(vec![b("puts"), v("example")])))
+        );
     }
 
     #[test]
@@ -284,7 +393,7 @@ mod tests {
                     b("subdir"),
                     Word::Subst(Command(vec![
                         b("replace"),
-                        b("$version"),
+                        v("version"),
                         b(r#"\..*"#),
                         q("")
                     ]))
@@ -334,13 +443,13 @@ mod tests {
                     b("subdir"),
                     Word::Subst(Command(vec![
                         b("replace"),
-                        b("$version"),
+                        v("version"),
                         b(r#"\..*"#),
                         q("")
                     ]))
                 ]),
-                Command(vec![b("pkgname"), b("$name")]),
-                Command(vec![b("version"), b("$version")]),
+                Command(vec![b("pkgname"), v("name")]),
+                Command(vec![b("version"), v("version")]),
                 Command(vec![b("revision"), b("2")]),
                 Command(vec![b("build-style"), b("gnu-configure")]),
                 Command(vec![
@@ -375,7 +484,15 @@ mod tests {
                 Command(vec![b("license"), b("Ruby"), b("BSD-2-Clause")]),
                 Command(vec![
                     b("distfile"),
-                    b("https://cache.ruby-lang.org/pub/ruby/$subdir/$pkgname-$version.tar.bz2"),
+                    Word::Bare(vec![
+                        Text::Text("https://cache.ruby-lang.org/pub/ruby/"),
+                        Text::Variable("subdir"),
+                        Text::Text("/"),
+                        Text::Variable("pkgname"),
+                        Text::Text("-"),
+                        Text::Variable("version"),
+                        Text::Text(".tar.bz2")
+                    ]),
                     b("checksum"),
                     b("dd638bf42059182c1d04af0d5577131d4ce70b79105231c4cc0a60de77b14f2e")
                 ])
