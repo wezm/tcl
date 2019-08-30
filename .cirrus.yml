@@ -1,5 +1,5 @@
 container:
-  image: rust:1.36.-slim
+  image: rust:1.36-slim
 
 test_task:
   cargo_cache:
