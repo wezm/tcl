@@ -1,6 +1,8 @@
 Tiny Command Language
 =====================
 
+[![Build Status](https://api.cirrus-ci.com/github/wezm/tcl.svg)](https://cirrus-ci.com/github/wezm/tcl)
+
 The Tiny Command Language is a little command language inspired by the
 [Tool Command Language (Tcl)](https://www.tcl-lang.org/). It aims to
 serve as a simple extension language for Rust programs and was written as part
