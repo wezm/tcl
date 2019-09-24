@@ -42,6 +42,11 @@ pub trait Context<'a> {
     ) -> EvalResult
     where
         Self: Sized;
+
+    /// Look up the named variable in the context
+    fn get_variable(&self, _name: &str) -> Option<&str> {
+        None
+    }
 }
 
 pub struct Interpreter<'a, C: Context<'a>> {
@@ -72,10 +77,10 @@ where
                 .into_iter()
                 .map(|word| match word {
                     Word::Bare(fragments) => {
-                        fragments_to_string(fragments, &variables, |s| Cow::from(s))
+                        fragments_to_string(fragments, &variables, &self.context, |s| Cow::from(s))
                     }
                     Word::Quoted(fragments) => {
-                        fragments_to_string(fragments, &variables, |s| unescape(s))
+                        fragments_to_string(fragments, &variables, &self.context, |s| unescape(s))
                     }
                     Word::Subst(_) => unimplemented!(),
                 })
@@ -104,6 +109,7 @@ where
 fn fragments_to_string<'a>(
     fragments: Vec<Text<'a>>,
     variables: &Variables,
+    context: &impl Context<'a>,
     transform: impl Fn(&str) -> Cow<'_, str>,
 ) -> Cow<'a, str> {
     if let [Text::Text(text)] = fragments.as_slice() {
@@ -115,7 +121,7 @@ fn fragments_to_string<'a>(
                 match fragment {
                     Text::Text(s) => string.push_str(&transform(s)),
                     Text::Variable(name) => {
-                        string.push_str(variables.get(name).map(String::as_str).unwrap_or(""))
+                        string.push_str(variables.get(name).map(String::as_str).or_else(|| context.get_variable(name)).unwrap_or("")) // TODO: Perhaps add a mode that returns an error on undefined variable
                     }
                 }
                 string
